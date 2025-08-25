@@ -1,6 +1,6 @@
 # SEC RAG Assignment
 
-[![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://www.kaggle.com/<your-username>/<your-notebook-name>)
+[![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://www.kaggle.com/code/anshuraj1/sec-rag-assignment)
 
 Runnable RAG pipeline for answering structured questions on SEC 10-K filings (Apple & Tesla).  
 Uses **LangChain, Chroma, FAISS, FlashRank, and Groq LLM**.
