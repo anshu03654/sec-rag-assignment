@@ -38,6 +38,8 @@ TOP_K = 10
 PREFETCH = 30
 CHUNK_SIZE = 700
 CHUNK_OVERLAP = 150
+PDF_DIR = "/kaggle/input/sec-dataset"
+CHROMA_DB_PATH = "/kaggle/working/langchain_chroma_db"
 
 
 SEC_ITEM_PATTERNS = [
