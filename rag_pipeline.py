@@ -869,9 +869,3 @@ def answer_question(query: str) -> dict:
     gen = generationclass()
     out = gen.generate(query, results)
     return {"answer": out.get("answer", NOT_FOUND_MSG), "sources": out.get("sources", [])}
-
-
-for question in questions: 
-    results = answer_question(question['question'])
-    print(results)
-    print("*"*50)
