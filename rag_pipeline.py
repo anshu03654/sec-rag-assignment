@@ -108,8 +108,6 @@ questions = [
 
 
 
-
-# Download required NLTK data (run once)
 try:
     nltk.data.find('tokenizers/punkt')
     nltk.data.find('corpora/stopwords')
@@ -154,28 +152,21 @@ class StopwordKeywordReranker:
     
     def _clean_and_tokenize(self, text: str) -> List[str]:
         """Clean text and tokenize while preserving important terms"""
-        # Convert to lowercase
+        
         text = text.lower()
         
-        # Remove punctuation but preserve $ and % symbols
         text = re.sub(r'[^\w\s\$%]', ' ', text)
         
-        # Tokenize
         tokens = word_tokenize(text)
         
-        # Remove stopwords but preserve protected keywords and numbers
         cleaned_tokens = []
         for token in tokens:
-            # Keep if it's a protected keyword
             if token in self.protected_keywords:
                 cleaned_tokens.append(token)
-            # Keep if it's a number (including financial numbers)
             elif re.match(r'^\d+(?:\.\d+)?$', token):
                 cleaned_tokens.append(token)
-            # Keep if it has $ or %
             elif '$' in token or '%' in token:
                 cleaned_tokens.append(token)
-            # Keep if it's not a stopword and is long enough
             elif token not in self.all_stopwords and len(token) > 2:
                 cleaned_tokens.append(token)
         
@@ -229,11 +220,11 @@ class StopwordKeywordReranker:
         union = query_set.union(doc_set)
         jaccard = len(intersection) / len(union) if union else 0.0
         
-        # 4. Weighted score (emphasize protected keywords)
+        # 4. Weighted score
         weighted_intersection = 0
         for token in intersection:
             if token in self.protected_keywords:
-                weighted_intersection += 2.0  # Double weight for important terms
+                weighted_intersection += 2.0 
             else:
                 weighted_intersection += 1.0
         
@@ -250,7 +241,6 @@ class StopwordKeywordReranker:
                            min_similarity: float = 0.1) -> List[Tuple[Document, Dict[str, float]]]:
         """Filter and score documents based on keyword similarity"""
         
-        # Process query
         query_tokens = self._clean_and_tokenize(query)
         query_patterns = self._extract_financial_patterns(query)
         
@@ -260,16 +250,13 @@ class StopwordKeywordReranker:
         scored_docs = []
         
         for doc in docs:
-            # Process document
             doc_tokens = self._clean_and_tokenize(doc.page_content)
             doc_patterns = self._extract_financial_patterns(doc.page_content)
             
-            # Calculate similarity metrics
             similarity_metrics = self._calculate_keyword_similarity(
                 query_tokens, doc_tokens, query_patterns, doc_patterns
             )
             
-            # Combined keyword score
             combined_score = (
                 0.4 * similarity_metrics['weighted_score'] +
                 0.3 * similarity_metrics['token_overlap'] +
@@ -277,14 +264,12 @@ class StopwordKeywordReranker:
                 0.1 * similarity_metrics['jaccard']
             )
             
-            # Only keep documents above minimum similarity
             if combined_score >= min_similarity:
                 scored_docs.append((doc, {
                     **similarity_metrics,
                     'combined_keyword_score': combined_score
                 }))
         
-        # Sort by combined keyword score
         scored_docs.sort(key=lambda x: x[1]['combined_keyword_score'], reverse=True)
         
         # print(f"[keyword] Filtered from {len(docs)} to {len(scored_docs)} documents")
@@ -305,43 +290,31 @@ class StopwordKeywordReranker:
         
         # print(f"[pipeline] Starting 3-stage reranking with {len(docs)} documents")
         
-        # Stage 1: Keyword filtering
         keyword_scored_docs = self._filter_by_keywords(query, docs, keyword_filter_threshold)
         
         if not keyword_scored_docs:
             # print("[pipeline] No documents passed keyword filter, using all documents")
             keyword_scored_docs = [(doc, {'combined_keyword_score': 0.0}) for doc in docs]
         
-        # Take top candidates for FlashRank (to avoid processing too many)
         candidates = keyword_scored_docs
         candidate_docs = [doc for doc, _ in candidates]
         
         # print(f"[pipeline] Stage 1 complete: {len(candidates)} candidates for FlashRank")
-        
-        # Stage 2: FlashRank reranking
         try:
             passages = [{"text": d.page_content} for d in candidate_docs]
             flashrank_results = self.ranker.rerank(RerankRequest(query=query, passages=passages))
             
-            # Stage 3: Combine scores
             final_results = []
             
             for i, flashrank_item in enumerate(flashrank_results):
-                # Use enumeration index since FlashRank returns dicts without index
                 idx = i
                 
                 if idx >= len(candidates):
                     continue
                 
                 doc, keyword_metrics = candidates[idx]
-                
-                # Get FlashRank score from dict
                 flashrank_score = flashrank_item.get('score', 0.0)
-                
-                # Normalize FlashRank score (typically -1 to 1 -> 0 to 1)
                 normalized_flashrank = (flashrank_score + 1) / 2
-                
-                # Combine scores
                 keyword_score = keyword_metrics['combined_keyword_score']
                 final_score = (1 - hybrid_weight) * normalized_flashrank + hybrid_weight * keyword_score
                 
@@ -352,11 +325,8 @@ class StopwordKeywordReranker:
                     'keyword_score': keyword_score,
                     'keyword_metrics': keyword_metrics
                 })
-            
-            # Sort by final score
             final_results.sort(key=lambda x: x['final_score'], reverse=True)
             
-            # Build output
             reranked_docs = []
             for i, result in enumerate(final_results[:top_k]):
                 doc = result['doc']
@@ -389,30 +359,26 @@ class StopwordKeywordReranker:
                 fallback_docs.append(Document(page_content=doc.page_content, metadata=enhanced_metadata))
             
             return fallback_docs
-
-# Usage in your existing pipeline
+            
 def retrieve_sec_info_enhanced(vectorstore: Chroma, query: str, k: int = 5, prefetch: int = PREFETCH) -> List[Dict]:
     """Enhanced retrieval with stopword removal and keyword matching"""
     print(f"[retrieve] Enhanced query: {query}")
 
-    # Step 1: Initial vector search (larger prefetch for filtering)
     candidates = vectorstore.similarity_search(query, k=prefetch)  # Get more candidates
     print(f"[retrieve] Retrieved {len(candidates)} initial candidates")
 
-    # Step 2: Enhanced reranking with stopword removal and keyword matching
     enhanced_reranker = StopwordKeywordReranker("ms-marco-MiniLM-L-12-v2")
     
     top_docs = enhanced_reranker.rerank(
         query, 
         candidates, 
         top_k=k,
-        keyword_filter_threshold=0.05,  # Lower threshold = more permissive
-        hybrid_weight=0.4  # 40% keyword weight, 60% FlashRank weight
+        keyword_filter_threshold=0.05,
+        hybrid_weight=0.4 
     )
     
     print(f"[retrieve] Final reranked results: {len(top_docs)}")
 
-    # Convert to your expected format
     results = []
     for doc in top_docs:
         metadata = doc.metadata or {}
@@ -449,7 +415,6 @@ class embeddingclass(Embeddings):
             if self.tok.pad_token_id is None:
                 self.tok.pad_token = self.tok.eos_token
             
-            # Load model with better GPU settings
             self.model = AutoModel.from_pretrained(
                 self.model_name, 
                 trust_remote_code=True,
@@ -457,22 +422,19 @@ class embeddingclass(Embeddings):
                 device_map=None
             ).to(self.device)
             
-            # Set to eval mode and optimize for inference
             self.model.eval()
             if self.device == "cuda":
                 torch.set_float32_matmul_precision("high")
-                # # Compile model for better GPU performance (PyTorch 2.0+)
                 # try:
                 #     self.model = torch.compile(self.model, mode="reduce-overhead")
                 # except:
-                #     pass  # fallback if compile not available
+                #     pass
 
     @torch.no_grad()
     def _encode_batch(self, texts: List[str]) -> List[List[float]]:
         if self.model is None:
             self.load_model()
         
-        # Tokenize and move to GPU immediately
         t_cpu = self.tok(
             texts, 
             padding="longest", 
@@ -481,25 +443,18 @@ class embeddingclass(Embeddings):
             return_tensors="pt"
         )
         
-        # Move to GPU with non_blocking for better performance
         if self.device == "cuda":
             t = {k: v.to(self.device, non_blocking=True) for k, v in t_cpu.items()}
         else:
             t = t_cpu
             
-        # Use autocast for better GPU performance
         autocast_ctx = torch.cuda.amp.autocast(dtype=torch.bfloat16) if self.device == "cuda" else contextlib.nullcontext()
         
         with autocast_ctx:
-            # Forward pass - should use GPU
             out = self.model(**t).last_hidden_state
-            
-            # Pooling operations on GPU
             mask = t["attention_mask"].unsqueeze(-1).expand_as(out).float()
             emb = (out * mask).sum(1) / mask.sum(1).clamp(min=1e-9)
             emb = torch.nn.functional.normalize(emb, p=2, dim=1)
-        
-        # Only convert to CPU at the very end
         return emb.float().cpu().tolist()
 
     def embed_documents(self, texts: List[str], chunk_size: int = 0) -> List[List[float]]:
@@ -513,8 +468,7 @@ class embeddingclass(Embeddings):
             batch_embs = self._encode_batch(batch)
             embs.extend(batch_embs)
             
-            # Print progress and GPU usage
-            if i % (bs * 4) == 0:  # every 4 batches
+            if i % (bs * 4) == 0:
                 if self.device == "cuda":
                     gpu_mem = torch.cuda.memory_allocated() / 1024**3
                     print(f"Processed {i+len(batch)}/{len(texts)} - GPU Memory: {gpu_mem:.2f}GB")
@@ -649,7 +603,7 @@ class generationclass:
             
         return {"answer": answer, "sources": self._chunk_ids_to_sources_flat(ref_ids, results)}
 class chromaclass:
-    _vectorstore = None  # class-level singleton
+    _vectorstore = None
 
     def __init__(self, pdf_dir: str = PDF_DIR, collection_name: str = COLLECTION_NAME, persist_dir: str = CHROMA_DB_PATH):
         self.pdf_dir = pdf_dir or os.environ.get("PDF_DIR", "/content")
@@ -658,7 +612,6 @@ class chromaclass:
         if chromaclass._vectorstore is None:
             self._ensure_vectorstore()
 
-    # ---- internal helpers kept inside the class ----
     @staticmethod
     def _sec_item_patterns() -> List[str]:
         return [
@@ -739,7 +692,7 @@ class chromaclass:
                 persist_directory=self.persist_dir
             )
             hits = vs.similarity_search("test", k=1)
-            return len(hits) > 0   # ← only “exists” if it actually has vectors
+            return len(hits) > 0 
         except Exception:
             return False
 
@@ -812,7 +765,6 @@ class chromaclass:
     def retrieve_enhanced(self, query: str, k: int = 10, prefetch: int = 25) -> List[Dict[str, Any]]:
         """Enhanced retrieval with stopword removal and keyword matching"""
         
-        # Get more initial candidates for better keyword filtering
         candidates = self.vectorstore().similarity_search(query, k=prefetch*2)
 
         # print(candidates)
@@ -821,20 +773,18 @@ class chromaclass:
         #     md = candidate.metadata 
         #     print(f'''"{md.get('chunk_id')}"''')
         
-        # Use enhanced reranker
         enhanced_reranker = StopwordKeywordReranker("ms-marco-MiniLM-L-12-v2")
         
         top_docs = enhanced_reranker.rerank(
             query, 
             candidates, 
             top_k=k,
-            keyword_filter_threshold=0.05,  # Adjust based on your needs
-            hybrid_weight=0.3  # 30% keywords, 70% FlashRank
+            keyword_filter_threshold=0.05,
+            hybrid_weight=0.3
         )
         # print("**************")
         # print(top_docs)
         
-        # Convert to your expected format
         results = []
         for doc in top_docs:
             md = doc.metadata or {}
@@ -846,7 +796,6 @@ class chromaclass:
                 'item_number': md.get('item_number',''),
                 'item_title': md.get('item_title',''),
                 'rerank_score': float(md.get('rerank_score',0.0)),
-                # Additional debugging info
                 'keyword_score': float(md.get('keyword_score', 0.0)),
                 'flashrank_score': float(md.get('flashrank_score', 0.0)),
             })
@@ -864,7 +813,7 @@ def answer_question(query: str) -> dict:
             "sources": ["Apple 10-K", "Item 8", "p. 28"]  # Empty list if refused
         }
     """
-    store = chromaclass()               # builds/loads Chroma once (singleton)
+    store = chromaclass()    
     results = store.retrieve_enhanced(query, k=TOP_K, prefetch= 30 * 2)
     gen = generationclass()
     out = gen.generate(query, results)
