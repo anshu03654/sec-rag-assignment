@@ -703,14 +703,31 @@ class chromaclass:
             page_docs = loader.load()
             fname = op.basename(p)
             page_docs.sort(key=lambda d: (d.metadata or {}).get("page", 0))
-            current_items, last_item_page = [], 0
+            
+            last_item = None
+            last_item_page = 0
+            
             for doc in page_docs:
                 page_num = doc.metadata.get("page", 0)
                 text = doc.page_content
                 page_items = chromaclass._extract_sec_items(text, page_num)
+                
                 if page_items:
-                    current_items.extend(page_items); current_items = current_items[-5:]; last_item_page = page_num
-                primary_item = page_items[0] if page_items else (current_items[-1] if current_items and (page_num - last_item_page <= 5) else None)
+                    last_item = page_items[0]
+                    last_item_page = page_num
+                
+                # Inheritance logic
+                if page_items:
+                    primary_item = page_items[0]
+                elif last_item:
+                    # Apply 5-page limit only for Item 16
+                    if last_item['item_number'] == '16' and (page_num - last_item_page > 5):
+                        primary_item = None
+                    else:
+                        primary_item = last_item
+                else:
+                    primary_item = None
+                    
                 md = {
                     'source': doc.metadata.get('source', p),
                     'page': page_num,
